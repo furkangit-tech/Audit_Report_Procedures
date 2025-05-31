@@ -30,7 +30,8 @@ CREATE PROCEDURE [ocrapi].[USP_LogApplicantChanges]
     @MissingRegId BIT,
     @IsImmigrant BIT,
     @ActionDetails NVARCHAR(MAX) OUTPUT,
-    @Status VARCHAR(50) = 'Success',
+    @Status VARCHAR(50) = 'success',
+	@TableName VARCHAR(50) = 'applicants',
     @Reason VARCHAR(255) = NULL
 AS
 BEGIN
@@ -167,32 +168,34 @@ BEGIN
         SET @ActionDetails = '[]';
 
     IF @Reason IS NULL
-	BEGIN
-		SET @Reason = CASE 
-						WHEN JSON_VALUE(@ActionDetails, '$[0].OldValue') IS NOT NULL THEN 'Change'
-						ELSE 'Update'
-					 END;
-	END
-	
-	IF @ActionDetails IS NOT NULL AND @ActionDetails <> '[]'
-	BEGIN
-		INSERT INTO [audit_log] (
-			user_id,
-			applicant_id,
-			edit_applicant,
-			status,
-			reason,
-			action_details
-		)
-		VALUES (
-			@VerifiedBy,
-			@ApplicantId,
-			'UPDATE',
-			@Status,
-			@Reason,
-			@ActionDetails
-		);
-	END
+    BEGIN
+        SET @Reason = CASE 
+            WHEN JSON_VALUE(@ActionDetails, '$[0].OldValue') IS NOT NULL THEN 'Change'
+            ELSE 'Update'
+        END;
+    END
+    
+    IF @ActionDetails IS NOT NULL AND @ActionDetails <> '[]'
+    BEGIN
+        INSERT INTO [audit_log] (
+            user_id,
+            record_id,
+            table_name,
+            action_type,
+            status,
+            reason,
+            action_details
+        )
+        VALUES (
+            @VerifiedBy,
+            @ApplicantId,
+            @TableName,
+            'UPDATE',
+            @Status,
+            @Reason,
+            @ActionDetails
+        );
+    END
 END;
 
 -- SP_GetAuditReport
@@ -205,9 +208,10 @@ BEGIN
         al.id,
         al.user_id,
         u.name AS user_name,
-        al.applicant_id,
-		al.edit_applicant,
-		al.status,
+        al.record_id,
+        al.table_name,
+        al.action_type,
+        al.status,
         al.reason,
         al.action_details,
         al.created_at,
@@ -374,11 +378,11 @@ BEGIN
                     registration_date = @RegistrationDate,
                     relationtype_id = @RelationTypeId, 
                     relative_name = @RelativeName, 
-					missing_reg_id = @MissingRegId,
-					is_immigrant = @IsImmigrant,
-					system_verified = 1,
-					LockedByUserId = 0,
-					system_verification_date = GETDATE(),
+          					missing_reg_id = @MissingRegId,
+          					is_immigrant = @IsImmigrant,
+          					system_verified = 1,
+          					LockedByUserId = 0,
+					          system_verification_date = GETDATE(),
                     updated_on = GETDATE()        
                 WHERE ocr_result_id = @ApplicantId;
 
@@ -435,14 +439,16 @@ BEGIN
                 SET @Message = 'Update successful';      
 
 				UPDATE audit_log
-				SET status = 'Success',
-					reason = @Message
-				WHERE applicant_id = @ApplicantId
-				  AND created_at = (
-					  SELECT MAX(created_at)
-					  FROM audit_log
-					  WHERE applicant_id = @ApplicantId
-				  );
+                SET status = 'success',
+                    reason = @Message
+                WHERE record_id = @ApplicantId
+                  AND table_name = 'applicants'
+                  AND created_at = (
+                      SELECT MAX(created_at)
+                      FROM audit_log
+                      WHERE record_id = @ApplicantId
+                        AND table_name = 'applicants'
+                  );
                 COMMIT TRANSACTION;
                 RETURN;
             END
